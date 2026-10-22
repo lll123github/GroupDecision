@@ -1,0 +1,30 @@
+name: groupdecision
+
+services:
+  app:
+    image: groupdecision:local
+    build:
+      context: .
+      args:
+        RUST_IMAGE: ${RUST_IMAGE:-rust:1.99.1-bookworm}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-debian:bookworm-slim}
+        CARGO_REGISTRY_MIRROR: ${CARGO_REGISTRY_MIRROR-https://rsproxy.cn/index/}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-18760}:18760"
+    environment:
+      DTRP_ROOT: /app
+      DTRP_BIND: 0.0.0.0:18760
+      DTRP_DATABASE: /app/data/decisions.sqlite3
+      DTRP_SECURE_COOKIE: ${SECURE_COOKIE:-0}
+    volumes:
+      - groupdecision-data:/app/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    stop_grace_period: 20s
+
+volumes:
+  groupdecision-data:

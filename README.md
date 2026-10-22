@@ -20,6 +20,78 @@
 - 站内通知、SSE 实时同步、断线重连及轮询兜底。
 - 独立账号、邀请码入组、空间权限隔离及响应式桌面和手机界面。
 
+## Docker 本地部署（推荐）
+
+需要已安装并启动 Docker，并提供 Docker Compose。Windows、macOS 可使用 Docker Desktop；Linux 可使用 Docker Engine 和 Compose 插件。不需要在宿主机安装 Rust、Node.js 或 Python。
+
+```bash
+git clone https://github.com/lll123github/GroupDecision.git
+cd GroupDecision
+docker compose up -d --build --wait
+```
+
+打开 `http://localhost:18760`。首次启动会从源码编译，耗时取决于网络和机器性能。注册账号、创建空间后，邀请其他账号加入即可测试。
+
+```bash
+docker compose ps
+docker compose logs -f app
+docker compose stop
+docker compose start
+```
+
+### 端口与访问范围
+
+默认仅绑定本机 `127.0.0.1:18760`。需要修改时，将 `.env.example` 复制为 `.env` 并编辑：
+
+```dotenv
+PORT=18760
+BIND_ADDRESS=127.0.0.1
+SECURE_COOKIE=0
+```
+
+改为 `BIND_ADDRESS=0.0.0.0` 后，同一网络中的其他设备可通过宿主机 IP 和端口访问，适合多个账号或手机参与测试。通过 HTTPS 反向代理运行时，把 `SECURE_COOKIE` 设为 `1`；本地直接 HTTP 保持为 `0`。修改后重新运行 `docker compose up -d --wait`。
+
+### 数据持久化与更新
+
+SQLite 数据库保存在 Docker 命名卷 `groupdecision_groupdecision-data` 中，挂载到容器 `/app/data`。停止、删除或重建容器会保留此卷。
+
+```bash
+# 下载更新并重建，保留账号、决策、讨论与通知
+git pull --ff-only
+docker compose up -d --build --wait
+
+# 停止并移除容器，保留数据库卷
+docker compose down
+```
+
+`docker compose down -v` 会删除数据卷并清空账号与决策，仅在明确希望重置本地测试环境时使用。
+
+备份前先停止服务，保证复制的是一致的数据库文件。以下命令适用于 Bash，镜像中不需要额外安装备份工具：
+
+```bash
+mkdir -p backups
+docker compose stop app
+docker compose cp app:/app/data/decisions.sqlite3 ./backups/decisions.sqlite3
+docker compose start app
+```
+
+请在 `docker compose down` 之前执行上述备份，因为 `compose cp` 需要已有的服务容器。备份的数据库包含账号与团队数据，请自行妥善保管。
+
+### 构建网络
+
+基础镜像默认使用 Docker 官方 Rust 与 Debian 镜像，Cargo 依赖默认使用 rsproxy。可在 `.env` 中覆盖 `RUST_IMAGE`、`RUNTIME_IMAGE` 和 `CARGO_REGISTRY_MIRROR`。将 `CARGO_REGISTRY_MIRROR=` 留空可使用 crates.io。镜像标签与平台需要支持当前机器架构。
+
+容器使用非 root 用户运行前后端，带 HTTP 健康检查，接收 SIGINT 正常停止，并使用只读根文件系统。无需额外部署 Nginx、前端服务器或外部数据库。
+
+### 本地协作测试
+
+1. 在普通浏览器窗口注册账号 A，创建空间，并选择添加示例决策。
+2. 在另一浏览器或无痕窗口注册账号 B，输入 A 分享的邀请码。两个普通标签页会共享登录状态，请使用独立浏览器会话。
+3. A 发起决策，B 选择选项、发表讨论和补充选项；A 的页面应实时显示变化和重新确认提示。
+4. 在决策详情点击“提议合并”，勾选两个或更多选项并提出合并子决策；成员投票后，由 A 提前结束表决，检查合并结果、原选项与来源讨论。
+5. 测试自动提醒时，可把截止时间设在几分钟后，并设置截止前 1 分钟提醒。
+6. 停止或重建容器后重新登录，确认账号、空间、选择和讨论仍在。
+
 ## 从源码运行
 
 以下方式适用于 Linux。需要 Python 3、Node.js，以及 Rust 工具链。Node.js 仅用于前端语法检查，正式服务运行不依赖 Node.js。
@@ -60,6 +132,8 @@ SQLite 采用 DELETE journal、FULL 同步和数据库进程锁。同一数据�
 
 ## 验证
 
+完成源码构建后，可运行：
+
 ```bash
 python3 tests/integration.py
 node --check static/app.js
@@ -75,3 +149,12 @@ node --check static/app.js
 - 通知为站内通知；没有邮件、短信或 Web Push。关闭网页后，通知仍保存在服务器，重新进入网页可查看。
 - 直接 HTTP 适合本地测试和受控内网。公网部署请使用 HTTPS，并设置 Secure Cookie。
 - 暂不包含密码重置、组织者转让、附件上传与第三方账号登录。
+
+容器镜像构建完成后，可选用宿主机 Python 3 运行容器冒烟测试：
+
+```bash
+docker compose build
+python3 tests/container_smoke.py
+```
+
+该测试使用随机端口、独立 Compose 项目和独立数据卷，检查后删除测试容器与测试卷，不影响日常部署的数据。

@@ -1,0 +1,10 @@
+**
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/**
+!static/
+!static/**
+!scripts/
+!scripts/container-healthcheck.sh
+!Dockerfile
